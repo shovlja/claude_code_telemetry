@@ -1,0 +1,6 @@
+model,api_requests,api_errors,error_rate_pct
+claude-opus-4-5-20251101,23693,293,1.24
+claude-haiku-4-5-20251001,45979,549,1.19
+claude-opus-4-6,25959,290,1.12
+claude-sonnet-4-5-20250929,19698,208,1.06
+claude-sonnet-4-6,2685,22,0.82

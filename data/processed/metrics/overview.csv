@@ -1,2 +1,2 @@
-total_events,total_sessions,total_users,total_api_requests,total_tokens,total_cost_usd
-454428,5000,100,118014,103279101.0,6001.429293628842
+total_events,total_api_requests,total_tool_results,total_sessions,total_users,total_tokens,total_cost_usd,avg_session_duration_minutes,avg_tokens_per_session,avg_cost_per_session
+454428,118014,148418,5000,100,103279101.0,6001.43,15.48,20655.82,1.2003

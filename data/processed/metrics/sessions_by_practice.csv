@@ -1,0 +1,6 @@
+practice,total_sessions,avg_session_duration_minutes,avg_tokens_per_session,total_cost_usd
+Frontend Engineering,1239,15.23,20376.13,1472.82
+ML Engineering,1210,16.03,21149.7,1475.23
+Backend Engineering,974,15.28,20407.8,1176.18
+Data Engineering,965,15.99,21230.21,1184.33
+Platform Engineering,612,14.44,19734.61,692.87

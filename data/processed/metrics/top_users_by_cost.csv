@@ -1,0 +1,16 @@
+user_id,full_name,email,practice,level,location,total_sessions,total_tokens,total_cost_usd,preferred_model,favorite_tool
+22127e87e9c046c6b742b47a670c3a11cb84a828a056505328f74e2f0f1e83bf,Blake Kim,blake.kim@example.com,Data Engineering,L10,Germany,58,1572753.0,94.44,claude-haiku-4-5-20251001,Read
+ad3070652beccc36984c4858a68dd5af6fc6faf68788beeb4924c83aaa6f3cfe,Reese Anderson,reese.anderson@example.com,Frontend Engineering,L6,Germany,59,1559078.0,92.93,claude-haiku-4-5-20251001,Read
+b1f562d32d9c6c65c2a0293806b1dcb4d95cd152ad8cece7c658b9347209c6d2,Morgan Jones,morgan.jones@example.com,Backend Engineering,L7,United Kingdom,61,1626141.0,91.64,claude-haiku-4-5-20251001,Read
+eb82bb4ec184d6647f750a5053c20f6af3520c33303c52b8bbd4df0f1248e1d9,Casey Kim,casey.kim@example.com,Frontend Engineering,L6,Germany,51,1511085.0,87.95,claude-haiku-4-5-20251001,Read
+c8848825c7c6d61d1c149de76717a23d6d6ec62fea4abfbc365c04cfa887fb54,Val Jones,val.jones@example.com,Platform Engineering,L6,United Kingdom,52,1458655.0,86.72,claude-haiku-4-5-20251001,Read
+f8d79083de759d2e746c377fa1aeaa08a205451e031a1feb5fcb856b2b1d7718,Max Jackson,max.jackson@example.com,ML Engineering,L3,United Kingdom,54,1521843.0,84.05,claude-haiku-4-5-20251001,Read
+f147a1f66439f7d6db7df6bffacfa5cb14a07e47dca3a256f420bda869e0b398,Jamie Johnson,jamie.johnson@example.com,Data Engineering,L3,Poland,62,1346609.0,83.1,claude-haiku-4-5-20251001,Read
+5d4c2d0c7007ba8a6f7d7dd3fedddff80b3de1a2049bb886bd39de9081fad1d3,Max Davis,max.davis@example.com,ML Engineering,L5,Canada,42,1437517.0,81.62,claude-haiku-4-5-20251001,Bash
+a3e4427f7f40ef1e383ea59ffe3ef83ada1ee152533d51b874a2138df9060a88,Morgan Kim,morgan.kim@example.com,ML Engineering,L6,Canada,49,1427819.0,81.42,claude-haiku-4-5-20251001,Read
+ef931f1692d7bab6b1135e1820c2aa1d69e9b612e3fe5666c9e0279b0c5e4622,Casey Johnson,casey.johnson@example.com,ML Engineering,L4,Poland,58,1263493.0,80.28,claude-haiku-4-5-20251001,Read
+2d2b44b1f8f0c3009d11f4cac21817bbc9bee6afa65c9885fd7a59af74515390,West Wilson,west.wilson@example.com,Backend Engineering,L5,Poland,58,1503971.0,79.91,claude-haiku-4-5-20251001,Read
+f3d5f378f7a0b937357d5b3e9adda108ab9cdadce0542990e4572a9b6845c1ff,Quinn White,quinn.white@example.com,ML Engineering,L5,Germany,50,1436451.0,78.56,claude-haiku-4-5-20251001,Read
+6f5ada528732f6a275da3b2892238991c2e2a581a54e6f09e755fada2de74349,Taylor Garcia,taylor.garcia@example.com,Data Engineering,L4,Germany,53,1296124.0,77.18,claude-haiku-4-5-20251001,Read
+738a99c06d9dfc3df4f7d260c3b687a7cb9c896e74a0ba6cf1475b0c147f6846,Riley Johnson,riley.johnson@example.com,Frontend Engineering,L3,Canada,60,1224057.0,73.82,claude-haiku-4-5-20251001,Read
+9c2293efe48e9904d55db2ee234f31737fff6e787dc78bbe9a531c4ba0d6d9e4,Emery Davis,emery.davis@example.com,Data Engineering,L5,Canada,43,1317990.0,73.36,claude-haiku-4-5-20251001,Bash

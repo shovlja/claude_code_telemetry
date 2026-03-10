@@ -1,0 +1,12 @@
+{
+  "total_events": 454428.0,
+  "total_api_requests": 118014.0,
+  "total_tool_results": 148418.0,
+  "total_sessions": 5000.0,
+  "total_users": 100.0,
+  "total_tokens": 103279101.0,
+  "total_cost_usd": 6001.43,
+  "avg_session_duration_minutes": 15.48,
+  "avg_tokens_per_session": 20655.82,
+  "avg_cost_per_session": 1.2003
+}
