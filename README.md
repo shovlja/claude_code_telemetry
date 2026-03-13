@@ -1,59 +1,114 @@
-# Claude Code Telemetry Dataset
+# Claude Code Usage Analytics Platform
 
-Synthetic telemetry data for Claude Code — Anthropic's CLI tool for AI-assisted software engineering.
+An end-to-end analytics platform for processing Claude Code telemetry data and transforming raw event streams into actionable insights about developer behavior, usage trends, cost drivers, reliability, and tool performance.
 
-## Quick Start
+## Overview
 
-No dependencies required — uses Python standard library only.
+This project processes synthetic Claude Code telemetry logs and builds a complete analytics pipeline that:
 
-```bash
-python3 generate_fake_data.py
-```
+- ingests nested JSONL telemetry batches
+- cleans, validates, and structures raw event data
+- enriches telemetry with employee metadata
+- creates curated analytics-ready datasets
+- stores processed data in DuckDB
+- exposes insights through an interactive Streamlit dashboard
 
-For a realistic dataset, generate at least 100 engineers over a couple of months:
+The goal is to help stakeholders understand how Claude Code is being used across engineering teams, which models drive cost, when usage peaks, how tools perform, and where high-intensity sessions or users emerge.
 
-```bash
-python3 generate_fake_data.py --num-users 100 --num-sessions 5000 --days 60
-```
+---
 
-### Options
+## Architecture
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--num-users` | 30 | Number of engineers |
-| `--num-sessions` | 500 | Total coding sessions |
-| `--days` | 30 | Time span in days |
-| `--output-dir` | `output` | Output directory |
-| `--seed` | 42 | Random seed for reproducibility |
+The solution is organized into five layers:
 
-## Output Files
+### 1. Data Generation
+Synthetic telemetry data is produced using the provided generator:
 
-| File | Format | Description |
-|------|--------|-------------|
-| `telemetry_logs.jsonl` | JSONL | Telemetry log batches |
-| `employees.csv` | CSV | Employee directory |
+- `generate_fake_data.py`
 
-## Telemetry Structure
+This creates:
+- `telemetry_logs.jsonl`
+- `employees.csv`
 
-Each log record contains a batch of `logEvents`. Each event has a JSON `message` with:
+### 2. Ingestion Layer
+- `src/ingestion/parse_logs.py`
 
-- `body` — event type
-- `attributes` — event-specific fields
-- `scope` — instrumentation metadata
-- `resource` — host/user environment info
+This layer:
+- reads CloudWatch-style JSONL log batches
+- extracts nested event payloads
+- flattens telemetry data into a structured event table
+- saves parsed events as parquet
 
-## Employee Table
+### 3. Processing Layer
+- `src/processing/transform_events.py`
 
-| Column | Description |
-|--------|-------------|
-| email | Employee email |
-| full_name | Full name |
-| practice | Engineering practice |
-| level | Seniority level (L1–L10) |
-| location | Country |
+This layer:
+- validates required columns
+- normalizes timestamps, booleans, text, and numeric fields
+- enriches events with employee metadata
+- engineers derived analytics fields
+- creates curated datasets:
+  - `events_clean.parquet`
+  - `api_requests.parquet`
+  - `tool_results.parquet`
+  - `sessions.parquet`
+  - `users.parquet`
+- generates `data_quality_report.json`
 
-## Notes
+### 4. Storage Layer
+- `src/database/db.py`
+- `src/database/schema.sql`
 
-- All user identifiers are synthetic
-- Prompt contents are redacted
-- Employee emails match the telemetry data
+This layer:
+- loads curated parquet datasets into DuckDB
+- creates reusable SQL analytics views
+- provides efficient local analytical storage and querying
+
+### 5. Analytics & Visualization Layer
+- `src/analytics/metrics.py`
+- `src/dashboard/app.py`
+
+This layer:
+- exports analytics-ready summary datasets
+- powers the Streamlit dashboard
+- visualizes usage, cost, reliability, and developer behavior trends
+
+---
+
+## Project Structure
+
+```text
+claude_code_telemetry/
+│
+├── data/
+│   ├── raw/
+│   │   ├── telemetry_logs.jsonl
+│   │   └── employees.csv
+│   └── processed/
+│       ├── events.parquet
+│       ├── events_clean.parquet
+│       ├── api_requests.parquet
+│       ├── tool_results.parquet
+│       ├── sessions.parquet
+│       ├── users.parquet
+│       ├── data_quality_report.json
+│       ├── claude_code_analytics.duckdb
+│       └── metrics/
+│
+├── src/
+│   ├── ingestion/
+│   │   └── parse_logs.py
+│   ├── processing/
+│   │   └── transform_events.py
+│   ├── database/
+│   │   ├── db.py
+│   │   └── schema.sql
+│   ├── analytics/
+│   │   └── metrics.py
+│   └── dashboard/
+│       └── app.py
+│
+├── generate_fake_data.py
+├── README.md
+├── LLM_USAGE.md
+└── requirements.txt
