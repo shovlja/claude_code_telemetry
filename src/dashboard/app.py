@@ -1,7 +1,11 @@
+from __future__ import annotations
+
 from pathlib import Path
+
+import duckdb
 import pandas as pd
-import streamlit as st
 import plotly.express as px
+import streamlit as st
 
 st.set_page_config(
     page_title="Claude Code Usage Analytics",
@@ -9,12 +13,35 @@ st.set_page_config(
     layout="wide",
 )
 
-DATA_PATH = Path("data/processed/events_clean.parquet")
+ROOT_DIR = Path(__file__).resolve().parents[2]
+DB_PATH = ROOT_DIR / "data" / "processed" / "claude_code_analytics.duckdb"
+
+WEEKDAY_ORDER = [
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+    "Sunday",
+]
 
 
 @st.cache_data
-def load_data() -> pd.DataFrame:
-    return pd.read_parquet(DATA_PATH)
+def load_data() -> dict[str, pd.DataFrame]:
+    if not DB_PATH.exists():
+        raise FileNotFoundError(f"DuckDB database not found: {DB_PATH}")
+
+    with duckdb.connect(str(DB_PATH), read_only=True) as con:
+        data = {
+            "events": con.execute("SELECT * FROM events").fetchdf(),
+            "api_requests": con.execute("SELECT * FROM api_requests").fetchdf(),
+            "tool_results": con.execute("SELECT * FROM tool_results").fetchdf(),
+            "sessions": con.execute("SELECT * FROM sessions").fetchdf(),
+            "users": con.execute("SELECT * FROM users").fetchdf(),
+            "overview": con.execute("SELECT * FROM analytics.overview").fetchdf(),
+        }
+    return data
 
 
 def format_number(value: float | int) -> str:
@@ -25,85 +52,232 @@ def format_currency(value: float) -> str:
     return f"${value:,.2f}"
 
 
+def prepare_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    prepared = df.copy()
+
+    datetime_cols = [
+        "timestamp",
+        "event_date",
+        "session_start",
+        "session_end",
+        "first_seen",
+        "last_seen",
+    ]
+    for col in datetime_cols:
+        if col in prepared.columns:
+            prepared[col] = pd.to_datetime(prepared[col], errors="coerce")
+
+    text_cols = [
+        "event_name",
+        "practice",
+        "model",
+        "tool_name",
+        "session_id",
+        "user_id",
+        "full_name",
+        "email",
+        "level",
+        "location",
+        "primary_model",
+        "most_used_tool",
+        "preferred_model",
+        "favorite_tool",
+        "weekday",
+    ]
+    for col in text_cols:
+        if col not in prepared.columns:
+            prepared[col] = ""
+        prepared[col] = prepared[col].astype("string").fillna("").str.strip()
+
+    bool_cols = ["success", "is_api_request", "is_tool_result", "is_error"]
+    for col in bool_cols:
+        if col in prepared.columns:
+            prepared[col] = (
+                prepared[col]
+                .astype("string")
+                .str.strip()
+                .str.lower()
+                .map(
+                    {
+                        "true": True,
+                        "false": False,
+                        "1": True,
+                        "0": False,
+                        "yes": True,
+                        "no": False,
+                        "nan": False,
+                        "none": False,
+                        "": False,
+                    }
+                )
+                .fillna(False)
+                .astype(bool)
+            )
+
+    numeric_cols = [
+        "total_tokens",
+        "cost_usd",
+        "duration_ms",
+        "hour",
+        "session_duration_minutes",
+        "session_total_tokens",
+        "session_total_cost_usd",
+        "avg_api_duration_ms",
+        "avg_tool_duration_ms",
+        "tool_success_rate",
+        "tool_success_rate_pct",
+        "total_sessions",
+        "total_events",
+        "total_api_requests",
+        "total_tool_runs",
+        "avg_tokens_per_session",
+        "avg_cost_per_session",
+        "total_cost_usd",
+        "total_users",
+        "total_tool_results",
+    ]
+    for col in numeric_cols:
+        if col in prepared.columns:
+            prepared[col] = pd.to_numeric(prepared[col], errors="coerce").fillna(0)
+
+    return prepared
+
+
 def build_insights(
-    filtered_df: pd.DataFrame,
     filtered_api: pd.DataFrame,
+    filtered_events: pd.DataFrame,
     filtered_tools: pd.DataFrame,
+    filtered_sessions: pd.DataFrame,
 ) -> list[str]:
-    insights = []
+    insights: list[str] = []
 
     if not filtered_api.empty:
         top_practice = (
-            filtered_api.groupby("practice")["total_tokens"]
+            filtered_api[filtered_api["practice"] != ""]
+            .groupby("practice")["total_tokens"]
             .sum()
             .sort_values(ascending=False)
         )
         if not top_practice.empty:
-            practice_name = top_practice.index[0]
-            practice_tokens = top_practice.iloc[0]
             insights.append(
-                f"Najveći token usage trenutno ima **{practice_name}** sa **{int(practice_tokens):,}** tokena."
+                f"The highest token usage currently comes from {top_practice.index[0]} with {int(top_practice.iloc[0]):,} tokens."
             )
 
         top_model_cost = (
-            filtered_api.groupby("model")["cost_usd"]
+            filtered_api[filtered_api["model"] != ""]
+            .groupby("model")["cost_usd"]
             .sum()
             .sort_values(ascending=False)
         )
         if not top_model_cost.empty:
-            model_name = top_model_cost.index[0]
-            model_cost = top_model_cost.iloc[0]
             insights.append(
-                f"Najveći trošak generiše model **{model_name}** sa ukupno **${model_cost:,.2f}**."
+                f"The highest cost is generated by {top_model_cost.index[0]} with a total of ${top_model_cost.iloc[0]:,.2f}."
             )
 
-    if not filtered_df.empty:
-        usage_by_hour = (
-            filtered_df.groupby("hour")
-            .size()
-            .sort_values(ascending=False)
-        )
+    if not filtered_events.empty and "hour" in filtered_events.columns:
+        usage_by_hour = filtered_events.groupby("hour").size().sort_values(ascending=False)
         if not usage_by_hour.empty:
-            peak_hour = usage_by_hour.index[0]
-            peak_count = usage_by_hour.iloc[0]
             insights.append(
-                f"Najveća aktivnost je oko **{peak_hour:02d}:00** sa **{int(peak_count):,}** eventova."
+                f"Peak activity occurs around {int(usage_by_hour.index[0]):02d}:00 with {int(usage_by_hour.iloc[0]):,} events."
             )
 
     if not filtered_tools.empty:
-        tool_usage = (
-            filtered_tools.groupby("tool_name")
+        top_tool = (
+            filtered_tools[filtered_tools["tool_name"] != ""]
+            .groupby("tool_name")
             .size()
             .sort_values(ascending=False)
         )
-        if not tool_usage.empty:
-            tool_name = tool_usage.index[0]
-            tool_count = tool_usage.iloc[0]
+        if not top_tool.empty:
             insights.append(
-                f"Najkorišćeniji alat je **{tool_name}** sa **{int(tool_count):,}** izvršavanja."
+                f"The most frequently used tool is {top_tool.index[0]} with {int(top_tool.iloc[0]):,} executions."
             )
+
+    if not filtered_sessions.empty and len(insights) < 4:
+        longest = filtered_sessions["session_duration_minutes"].max()
+        insights.append(
+            f"The longest session in the current view lasts {longest:,.2f} minutes."
+        )
 
     return insights[:4]
 
 
-df = load_data()
+def render_filter_summary(selected_practices: list[str], selected_models: list[str]) -> None:
+    practice_label = (
+        "All practices"
+        if not selected_practices
+        else ", ".join(selected_practices[:3]) + ("..." if len(selected_practices) > 3 else "")
+    )
+    model_label = (
+        "All models"
+        if not selected_models
+        else ", ".join(selected_models[:2]) + ("..." if len(selected_models) > 2 else "")
+    )
 
-api_requests = df[df["event_name"] == "api_request"].copy()
-tool_results = df[df["event_name"] == "tool_result"].copy()
+    st.markdown(
+        f"""
+        <div style="
+            margin-top: 0.5rem;
+            margin-bottom: 1rem;
+            padding: 0.8rem 1rem;
+            border-radius: 14px;
+            border: 1px solid rgba(255,255,255,0.08);
+            background: rgba(255,255,255,0.025);
+            color: #D7DCE3;
+            font-size: 0.93rem;
+        ">
+            <strong>Active Filters</strong><br/>
+            Practice: {practice_label}<br/>
+            Model: {model_label}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-# -----------------------------
-# Styling
-# -----------------------------
+
+def render_global_overview_summary(overview_df: pd.DataFrame) -> None:
+    if overview_df.empty:
+        st.info("Overview data is not available.")
+        return
+
+    row = overview_df.iloc[0]
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Total Events", format_number(row.get("total_events", 0)))
+    c2.metric("API Requests", format_number(row.get("total_api_requests", 0)))
+    c3.metric("Tool Results", format_number(row.get("total_tool_results", 0)))
+    c4.metric("Total Tokens", format_number(row.get("total_tokens", 0)))
+    c5.metric("Total Cost", format_currency(row.get("total_cost_usd", 0)))
+
+    c6, c7, c8 = st.columns(3)
+    c6.metric("Avg Session Duration", f"{row.get('avg_session_duration_minutes', 0):,.2f} min")
+    c7.metric("Avg Tokens / Session", f"{row.get('avg_tokens_per_session', 0):,.2f}")
+    c8.metric("Avg Cost / Session", format_currency(row.get("avg_cost_per_session", 0)))
+
+
+try:
+    raw = load_data()
+except FileNotFoundError as exc:
+    st.error(str(exc))
+    st.stop()
+
+events = prepare_dataframe(raw["events"])
+api_requests = prepare_dataframe(raw["api_requests"])
+tool_results = prepare_dataframe(raw["tool_results"])
+sessions = prepare_dataframe(raw["sessions"])
+users = prepare_dataframe(raw["users"])
+overview_view = prepare_dataframe(raw["overview"])
+
 st.markdown(
     """
     <style>
         .block-container {
-            padding-top: 1.5rem;
+            padding-top: 1.4rem;
             padding-bottom: 2rem;
         }
 
         .hero {
-            padding: 1.4rem 1.6rem;
+            padding: 1.35rem 1.6rem;
             border-radius: 18px;
             background: linear-gradient(135deg, rgba(32,39,55,1) 0%, rgba(16,20,31,1) 100%);
             border: 1px solid rgba(255,255,255,0.08);
@@ -129,7 +303,7 @@ st.markdown(
         }
 
         .insight-card {
-            padding: 1rem 1rem;
+            padding: 1rem;
             border-radius: 16px;
             background: rgba(255,255,255,0.03);
             border: 1px solid rgba(255,255,255,0.08);
@@ -159,30 +333,24 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# -----------------------------
-# Header
-# -----------------------------
 st.markdown(
     """
     <div class="hero">
         <h1>Claude Code Usage Analytics</h1>
-        <p>Interactive dashboard for telemetry analysis, developer behavior, token usage, cost trends, and tool performance.</p>
+        <p>DuckDB-powered telemetry analytics dashboard for usage trends, cost drivers, tool performance, reliability, and developer behavior.</p>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
-# -----------------------------
-# Sidebar filters
-# -----------------------------
 st.sidebar.title("Controls")
 
-if st.sidebar.button("Reset filters", use_container_width=True):
+if st.sidebar.button("Reset filters", width="stretch"):
     st.session_state.pop("selected_practices", None)
     st.session_state.pop("selected_models", None)
 
 with st.sidebar.expander("Filters", expanded=False):
-    practices = sorted([p for p in df["practice"].dropna().unique() if p != ""])
+    practices = sorted([p for p in api_requests["practice"].dropna().unique() if p != ""])
     selected_practices = st.multiselect(
         "Engineering Practice",
         options=practices,
@@ -198,48 +366,50 @@ with st.sidebar.expander("Filters", expanded=False):
         key="selected_models",
     )
 
-# -----------------------------
-# Filtering
-# -----------------------------
-filtered_df = df.copy()
+filtered_events = events.copy()
 filtered_api = api_requests.copy()
 filtered_tools = tool_results.copy()
+filtered_sessions = sessions.copy()
+filtered_users = users.copy()
 
 if selected_practices:
-    filtered_df = filtered_df[filtered_df["practice"].isin(selected_practices)]
+    filtered_events = filtered_events[filtered_events["practice"].isin(selected_practices)]
     filtered_api = filtered_api[filtered_api["practice"].isin(selected_practices)]
     filtered_tools = filtered_tools[filtered_tools["practice"].isin(selected_practices)]
+    filtered_sessions = filtered_sessions[filtered_sessions["practice"].isin(selected_practices)]
+    filtered_users = filtered_users[filtered_users["practice"].isin(selected_practices)]
 
 if selected_models:
     filtered_api = filtered_api[filtered_api["model"].isin(selected_models)]
 
-valid_sessions = filtered_api["session_id"].unique()
-if len(valid_sessions) > 0:
-    filtered_df = filtered_df[filtered_df["session_id"].isin(valid_sessions)]
+    valid_sessions = filtered_api["session_id"].dropna().unique()
+    valid_users = filtered_api["user_id"].dropna().unique()
+
+    filtered_events = filtered_events[filtered_events["session_id"].isin(valid_sessions)]
     filtered_tools = filtered_tools[filtered_tools["session_id"].isin(valid_sessions)]
-else:
-    filtered_df = filtered_df.iloc[0:0]
-    filtered_tools = filtered_tools.iloc[0:0]
+    filtered_sessions = filtered_sessions[filtered_sessions["session_id"].isin(valid_sessions)]
+    filtered_users = filtered_users[filtered_users["user_id"].isin(valid_users)]
 
-# -----------------------------
-# KPI cards
-# -----------------------------
-total_events = len(filtered_df)
-total_sessions = filtered_df["session_id"].nunique()
-total_users = filtered_df["user_id"].nunique()
-total_tokens = filtered_api["total_tokens"].fillna(0).sum()
-total_cost = filtered_api["cost_usd"].fillna(0).sum()
+render_filter_summary(selected_practices, selected_models)
 
-col1, col2, col3, col4, col5 = st.columns(5)
+total_events = len(filtered_events)
+total_sessions = filtered_sessions["session_id"].nunique() if "session_id" in filtered_sessions.columns else 0
+total_users = filtered_users["user_id"].nunique() if "user_id" in filtered_users.columns else 0
+total_tokens = filtered_api["total_tokens"].sum()
+total_cost = filtered_api["cost_usd"].sum()
+avg_session_duration = filtered_sessions["session_duration_minutes"].mean() if not filtered_sessions.empty else 0
+
+col1, col2, col3, col4, col5, col6 = st.columns(6)
 col1.metric("Total Events", format_number(total_events))
 col2.metric("Total Sessions", format_number(total_sessions))
 col3.metric("Total Users", format_number(total_users))
 col4.metric("Total Tokens", format_number(total_tokens))
 col5.metric("Total Cost", format_currency(total_cost))
+col6.metric("Avg Session (min)", f"{avg_session_duration:,.2f}")
 
 st.markdown('<div class="section-title">Key Insights</div>', unsafe_allow_html=True)
 
-insights = build_insights(filtered_df, filtered_api, filtered_tools)
+insights = build_insights(filtered_api, filtered_events, filtered_tools, filtered_sessions)
 insight_cols = st.columns(4)
 
 for idx, col in enumerate(insight_cols):
@@ -258,15 +428,31 @@ for idx, col in enumerate(insight_cols):
             """
             <div class="insight-card">
                 <h4>Insight</h4>
-                <p>Nema dovoljno podataka za dodatni zaključak u trenutnom filteru.</p>
+                <p>There is not enough data for an additional insight under the current filter selection.</p>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
+st.markdown(
+    """
+    <div style="margin-top: 1rem; margin-bottom: 0.6rem;"></div>
+    """,
+    unsafe_allow_html=True,
+)
+
+with st.expander("Global Overview from DuckDB view", expanded=False):
+    render_global_overview_summary(overview_view)
+
 st.divider()
 
-tab1, tab2, tab3 = st.tabs(["Usage & Cost", "Tools", "Data Preview"])
+if filtered_events.empty:
+    st.warning("There is no data for the current filter selection.")
+    st.stop()
+
+tab1, tab2, tab3, tab4 = st.tabs(
+    ["Usage & Cost", "Reliability & Tools", "Users & Sessions", "Data Preview"]
+)
 
 with tab1:
     col1, col2 = st.columns(2)
@@ -285,7 +471,7 @@ with tab1:
             title="Token Usage by Engineering Practice",
         )
         fig.update_layout(xaxis_title="", yaxis_title="Total Tokens")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     with col2:
         cost_by_model = (
@@ -301,13 +487,13 @@ with tab1:
             title="Cost by Model",
         )
         fig.update_layout(xaxis_title="", yaxis_title="Cost (USD)")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     col1, col2 = st.columns(2)
 
     with col1:
         usage_by_hour = (
-            filtered_df.groupby("hour", dropna=False)
+            filtered_events.groupby("hour", dropna=False)
             .size()
             .reset_index(name="event_count")
             .sort_values("hour")
@@ -320,92 +506,187 @@ with tab1:
             title="Usage by Hour of Day",
         )
         fig.update_layout(xaxis_title="Hour", yaxis_title="Event Count")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     with col2:
         daily_usage = (
-            filtered_df.groupby("day", dropna=False)
+            filtered_events.groupby("event_date", dropna=False)
             .size()
             .reset_index(name="event_count")
-            .sort_values("day")
+            .sort_values("event_date")
         )
         fig = px.line(
             daily_usage,
-            x="day",
+            x="event_date",
             y="event_count",
             title="Daily Usage Trend",
         )
         fig.update_layout(xaxis_title="Day", yaxis_title="Event Count")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
+
+    weekday_df = (
+        filtered_events[filtered_events["weekday"] != ""]
+        .groupby("weekday")
+        .size()
+        .reset_index(name="event_count")
+    )
+    if not weekday_df.empty:
+        weekday_df["weekday"] = pd.Categorical(
+            weekday_df["weekday"],
+            categories=WEEKDAY_ORDER,
+            ordered=True,
+        )
+        weekday_df = weekday_df.sort_values("weekday")
+
+        fig = px.bar(
+            weekday_df,
+            x="weekday",
+            y="event_count",
+            title="Usage by Weekday",
+        )
+        fig.update_layout(xaxis_title="", yaxis_title="Event Count")
+        st.plotly_chart(fig, width="stretch")
 
 with tab2:
     col1, col2 = st.columns(2)
 
     with col1:
-        top_tools = (
-            filtered_df[filtered_df["tool_name"].fillna("") != ""]
+        tool_perf = (
+            filtered_tools[filtered_tools["tool_name"] != ""]
             .groupby("tool_name")
-            .size()
-            .reset_index(name="usage_count")
-            .sort_values("usage_count", ascending=False)
-            .head(10)
-        )
-        fig = px.bar(
-            top_tools,
-            x="tool_name",
-            y="usage_count",
-            title="Top 10 Tools",
-        )
-        fig.update_layout(xaxis_title="", yaxis_title="Usage Count")
-        st.plotly_chart(fig, use_container_width=True)
-
-    with col2:
-        success_rate = (
-            filtered_tools.groupby("tool_name")
             .agg(
-                success_rate=("success", "mean"),
                 total_runs=("tool_name", "size"),
+                success_rate=("success", "mean"),
+                avg_duration_ms=("duration_ms", "mean"),
             )
             .reset_index()
+            .sort_values("total_runs", ascending=False)
         )
 
-        if not success_rate.empty:
-            success_rate["success_rate"] = success_rate["success_rate"] * 100
-            success_rate = success_rate.sort_values(
-                ["success_rate", "total_runs"],
-                ascending=[False, False],
-            ).head(10)
+        if not tool_perf.empty:
+            tool_perf["success_rate"] = tool_perf["success_rate"] * 100
 
         fig = px.bar(
-            success_rate,
+            tool_perf.head(10),
             x="tool_name",
-            y="success_rate",
-            title="Tool Success Rate (%)",
+            y="total_runs",
+            title="Top 10 Tools by Usage",
         )
-        fig.update_layout(xaxis_title="", yaxis_title="Success Rate (%)")
-        st.plotly_chart(fig, use_container_width=True)
+        fig.update_layout(xaxis_title="", yaxis_title="Usage Count")
+        st.plotly_chart(fig, width="stretch")
 
-    tool_table = (
-        filtered_tools.groupby("tool_name")
-        .agg(
-            total_runs=("tool_name", "size"),
-            success_rate=("success", "mean"),
-            avg_duration_ms=("duration_ms", "mean"),
+    with col2:
+        error_by_model = (
+            filtered_events[filtered_events["event_name"].isin(["api_request", "api_error"])]
+            .copy()
         )
-        .reset_index()
-        .sort_values("total_runs", ascending=False)
-    )
 
+        if not error_by_model.empty:
+            requests = (
+                error_by_model[error_by_model["event_name"] == "api_request"]
+                .groupby("model")
+                .size()
+                .reset_index(name="api_requests")
+            )
+            errors = (
+                error_by_model[error_by_model["event_name"] == "api_error"]
+                .groupby("model")
+                .size()
+                .reset_index(name="api_errors")
+            )
+            error_rate = requests.merge(errors, on="model", how="left").fillna(0)
+            error_rate["error_rate_pct"] = (
+                error_rate["api_errors"] * 100 / error_rate["api_requests"].replace(0, pd.NA)
+            ).fillna(0)
+            error_rate = error_rate.sort_values("error_rate_pct", ascending=False)
+        else:
+            error_rate = pd.DataFrame(columns=["model", "error_rate_pct"])
+
+        fig = px.bar(
+            error_rate,
+            x="model",
+            y="error_rate_pct",
+            title="API Error Rate by Model (%)",
+        )
+        fig.update_layout(xaxis_title="", yaxis_title="Error Rate (%)")
+        st.plotly_chart(fig, width="stretch")
+
+    tool_table = tool_perf.copy()
     if not tool_table.empty:
-        tool_table["success_rate"] = (tool_table["success_rate"] * 100).round(2)
+        tool_table["success_rate"] = tool_table["success_rate"].round(2)
         tool_table["avg_duration_ms"] = tool_table["avg_duration_ms"].round(2)
 
     st.subheader("Tool Performance Summary")
-    st.dataframe(tool_table, use_container_width=True, height=350)
+    st.dataframe(tool_table, width="stretch", height=320)
 
 with tab3:
-    st.subheader("Filtered Data Preview")
+    col1, col2 = st.columns(2)
 
+    with col1:
+        top_users = (
+            filtered_users.sort_values("total_tokens", ascending=False)
+            .head(10)[
+                [
+                    "full_name",
+                    "practice",
+                    "total_sessions",
+                    "total_tokens",
+                    "total_cost_usd",
+                    "preferred_model",
+                ]
+            ]
+        )
+        fig = px.bar(
+            top_users,
+            x="full_name",
+            y="total_tokens",
+            color="practice",
+            title="Top Users by Token Usage",
+        )
+        fig.update_layout(xaxis_title="", yaxis_title="Total Tokens")
+        st.plotly_chart(fig, width="stretch")
+
+    with col2:
+        sessions_by_practice = (
+            filtered_sessions.groupby("practice")
+            .agg(
+                total_sessions=("session_id", "size"),
+                avg_session_duration_minutes=("session_duration_minutes", "mean"),
+                avg_tokens_per_session=("session_total_tokens", "mean"),
+            )
+            .reset_index()
+            .sort_values("total_sessions", ascending=False)
+        )
+        fig = px.bar(
+            sessions_by_practice,
+            x="practice",
+            y="total_sessions",
+            title="Sessions by Engineering Practice",
+        )
+        fig.update_layout(xaxis_title="", yaxis_title="Session Count")
+        st.plotly_chart(fig, width="stretch")
+
+    st.subheader("High-Usage Sessions")
+    session_outliers = (
+        filtered_sessions.sort_values("session_total_tokens", ascending=False)
+        .head(20)[
+            [
+                "session_id",
+                "full_name",
+                "practice",
+                "session_start",
+                "session_duration_minutes",
+                "session_total_tokens",
+                "session_total_cost_usd",
+                "primary_model",
+                "most_used_tool",
+            ]
+        ]
+    )
+    st.dataframe(session_outliers, width="stretch", height=320)
+
+with tab4:
+    st.subheader("Filtered Event Preview")
     preview_cols = [
         "timestamp",
         "event_name",
@@ -416,11 +697,13 @@ with tab3:
         "cost_usd",
         "duration_ms",
         "success",
+        "session_id",
+        "user_id",
     ]
-    available_cols = [c for c in preview_cols if c in filtered_df.columns]
+    available_cols = [c for c in preview_cols if c in filtered_events.columns]
 
     st.dataframe(
-        filtered_df[available_cols].head(300),
-        use_container_width=True,
+        filtered_events[available_cols].head(300),
+        width="stretch",
         height=500,
     )
